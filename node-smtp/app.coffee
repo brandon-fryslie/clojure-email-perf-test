@@ -1,37 +1,47 @@
 # simple server to accept incoming emails
 
-nodemailer = require 'nodemailer'
+SMTPServer = require('smtp-server').SMTPServer
+microtime = require 'microtime'
+_ = require 'lodash'
 
 process.on('uncaughtException', (err) ->
   console.log(new Date())
   console.log('Caught exception: ' + err);
 );
 
-server_opts =
-  debug: true
-
 port = 25
+host = 'localhost'
 
-cb = (req) ->
-  console.log 'got me a mail!'
-  req.pipe process.stdout
-  req.accept()
+email_counter = 0
+start_time = null
+last = null
 
-console.log "Starting SMTP server on port #{port}"
+reset_timer = ->
+  console.log "Got #{email_counter}"
+  console.log "Elapsed time: #{last - start_time}"
 
-# simple server
-# smtp = nodemailer.createSimpleServer(server_opts, cb)
-# smtp.listen port
+  email_counter = null
+  start_time = null
+  last = null
 
-# not simple server
-smtp = nodemailer.createServer server_opts
-smtp.listen port
+debounced_timer = _.debounce reset_timer, 1000
 
-smtp.on 'startData', (connection) ->
-  console.log 'got connection', connection
+server = new SMTPServer
+  disabledCommands: ['AUTH']
+  logger: info: (->), debug: (->), error: ->
+  onData: (stream, session, callback) ->
+    t = microtime.nowDouble()
+    start_time ?= t
+    last = t
+    email_counter++
+    if email_counter % 100 is 0
+      console.log "Got #{email_counter} emails in #{last - start_time} seconds"
 
-smtp.on 'data', (connection, chunk) ->
-  console.log 'got data', connection, chunk
+    debounced_timer()
 
-smtp.on 'dataReady', (connection, callback) ->
-  console.log 'got data ready', connection, callback
+    callback()
+    stream.on 'data', ->
+
+
+console.log "Starting SMTP server on #{host}:#{port}"
+server.listen port, host
